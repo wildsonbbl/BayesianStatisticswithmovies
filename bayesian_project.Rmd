@@ -1,0 +1,271 @@
+---
+title: "Bayesian Statistics with movies dataset"
+author: "Wildson B B Lima"
+date: "11/11/2020"
+output: html_document
+---
+
+### Load packages
+
+```{r load-packages, message = FALSE}
+library(ggplot2)
+library(dplyr)
+library(statsr)
+library(BAS)
+library(data.table)
+```
+
+### Load data
+
+```{r load-data}
+load("movies.Rdata")
+```
+
+The codebook provides more information about the data.
+
+* * *
+
+## Part 1: Data
+
+Given that the data was collected by ***monitoring*** what has occurred during a period of time (movies before 2016), this is considered as a retrospective observational study, with the use of ***random sampling*** as stated in the codebook. 
+
+In general, observational studies can provide evidence of a naturally occurring ***association*** between variables, but they cannot by themselves show a **causal connection**. To provide **casual connections**, **experiments** with the use of **random assignments** would be necessary for the collection of data.
+
+
+* * *
+
+## Part 2: Data manipulation
+
+We are gonna need to create the following variables that was not originally in the dataset:
+
+- `feature_film`: "yes" if `title_type` is Feature Film, "no" otherwise
+
+- `drama`: "yes" if `genre` is Drama, "no" otherwise
+
+- `mpaa_rating_R`: "yes" if `mpaa_rating` is R, "no" otherwise
+
+- `oscar_season`: "yes" if movie is released in November, October, or December (based on `thtr_rel_month`), "no" otherwise
+
+- `summer_season`: "yes" if movie is released in May, June, July, or August (based on `thtr_rel_month`), "no" otherwise
+
+This way, we can have better understanding about the associations audience score have.
+
+For `feature_film`, we use the following code. 
+
+```{r}
+movies <- movies %>% 
+        mutate(feature_film = as.factor(ifelse(title_type == 'Feature Film','yes','no')))
+```
+
+For `drama`, we use the following code.
+
+```{r}
+movies <- movies %>% 
+        mutate(drama = as.factor(ifelse(genre == 'Drama','yes','no')))
+```
+
+For `mpa_rating_R`, we use the following code.
+
+```{r}
+movies <- movies %>% 
+        mutate(mpaa_rating_R = as.factor(ifelse(mpaa_rating == 'R','yes','no')))
+```
+
+For `oscar_season`, we use the following code.
+
+```{r}
+movies <- movies %>% 
+        mutate(oscar_season = as.factor(ifelse(thtr_rel_month > 9,'yes','no')))
+```
+
+For `summer_season`, we use the following code.
+
+```{r}
+movies <- movies %>% 
+        mutate(summer_season = as.factor(ifelse(between(thtr_rel_month,5,8),'yes','no')))
+```
+
+With those created variables, we are gonna select the following to work with henceforth:
+
+`Runtime, thtr_rel_year, imdb_rating, imdb_num_votes, critics_score, best_pic_nom, best_pic_win, best_actor_win, best_actress_win, best_dir_win, top200_box` and our response variable `audience_score`.
+
+We do so.
+
+```{r}
+variablesofinterest <- c('Runtime', 'thtr_rel_year', 'imdb_rating', 'imdb_num_votes', 'critics_score', 'best_pic_nom', 'best_pic_win', 'best_actor_win', 'best_actress_win', 'best_dir_win', 'top200_box','audience_score','feature_film', 'drama', 'mpaa_rating_R', 'oscar_season', 'summer_season')
+
+dataofinterest <- movies %>% select(contains(variablesofinterest))
+
+```
+
+* * *
+
+## Part 3: Exploratory data analysis
+
+We have `r nrow(dataofinterest)` observations with `r ncol(dataofinterest)` variables, the response variable included. Let's start with a summary of the data to have a general look.
+
+```{r comment=''}
+summary(dataofinterest)
+```
+
+First, we can see there is one missing value in runtime. Given that it is just one, we can look it up at the source and insert the corrected value so we can work with this observation too. 
+
+```{r}
+movies %>% filter (is.na(runtime)) %>% select(title,rt_url)
+```
+
+Using the url we can obtain more information about it. It’s a documentary from 2008 about how to turn the United States of America into a fascist state in merely 10 steps and it has a runtime of 1h 14min (74 min). We can add this missing information.
+
+```{r}
+dataofinterest$runtime <- replace(x = movies$runtime, list = is.na(movies$runtime), values = 74)
+```
+
+From the summary we can see too that the sampled movies' theater release year ranges from the 70's up to 2014. In some variables such as best pic nominated and winner, we have few positive observations, which can add bias to the results.
+
+We should construct some plots to see better the relationship between the response variable and at least some of the explanatory variables.
+
+```{r}
+melted <- data.table(dataofinterest) %>%
+        select(audience_score,feature_film,drama,mpaa_rating_R,oscar_season,summer_season, best_actor_win) %>% melt(id.vars = 1)
+```
+
+```{r cache=T}
+g<- ggplot(melted) + theme_bw()
+g<- g + geom_boxplot(aes(x = value, y = audience_score)) 
+g<- g + facet_wrap(~variable)
+g<- g + labs(x='Dataset variables',y='Audience Score')
+g
+```
+
+We can see there seems to be a reasonable difference between the two groups in the feature film variable. With the drama variable, the difference seems to be more at the variance and among the other variables there doesn't seem to be much difference.
+
+* * *
+
+## Part 4: Modeling
+
+For the multiple linear regression modeling we are going to use a Bayesian Model Averaging (BMA) using the `bas.lm` function from the `BAS` package.
+
+The BMA works averaging multiple models to obtain posteriors of coefficients. This way we avoid the problem of having to choose just one model, thus ignoring the uncertainty about the variables to be included in the model. 
+
+With all those variables included, We will have a total of $2^k$ models, where $k=16$, resulting in `r 2^16` models. We assign equal prior probabilities to all those models and use Bayesian Information Criterion (BIC) to set the coefficients prior, which is a very conservative prior.
+
+```{r}
+bma <- bas.lm(audience_score ~., data = dataofinterest,
+                   prior = "BIC", 
+                   modelprior = uniform())
+```
+
+With the summary we can see the top 5 models, their posterior probabilities and the variables marginal posterior inclusion probabilities.
+
+```{r comment=''}
+summary(bma)
+```
+
+The variables `imd_rating` and `critics_score` appears in all top 5 model. This is because they have the highest posterior probabilities as can be seen. The high correlation between the response variable and those variables are well expected and comes with no surprise given they are just scores from different sources. 
+
+Following those variable we have `runtime`, `best_actor_win`, ``best_actress_win` and `mpaa_rating_R` appearing at the top 5 too, with marginal posterior inclusion probabilities ranging from 0.1424 to 0.4359.
+
+Let's visualize the posterior distribution of the coefficients from those variables.
+
+```{r}
+coef_bma<- coefficients(bma)
+```
+
+```{r cache=T}
+par(mfrow=c(3,3))
+
+plot(coef_bma, subset = c(2,4,6,9,10,15), ask=F)
+```
+
+We can see the only one that doesn't have a 0 included at the distribution is `imdb_rating`.
+
+Let's take credible interval to make some interpretation about the coefficients.
+
+```{r}
+coef_bma %>% confint() %>% round(3)
+```
+
+So, we can say we have a 95% chance that for each unit of imdb rating increase we have on average between 13.645 and 16.528 increase of audience score.
+
+And for each unit of critics score increase we have on average between 0 and 0.106 increase of audience score with 95% chance, a small effect compared with the previous one. 
+
+Another interest effect is the one of the best actor winner. Movies with actors that have ever won a oscar as best actor have on average 2.574 and 0 audience score decrease compared with movies that don't have such actors, with a 95% chance of course.
+
+We can see too that many variables have 95% chance of having on average 0 influence on audience score, such as number of imdb votes, whether or not the movie won a best picture Oscar, whether or not the movies is drama and whether or not the movie is in the Top 200 Box Office list on BoxOfficeMojo. So we could choose to take then out of the model.
+
+Now, let's make some model diagnostics. 
+
+### Residuals Versus Fitted Values Using BMA
+
+We gotta check if residuals have constant variance.
+
+```{r}
+plot(bma, which = 1, add.smooth = F,
+ask = F, pch = 16, sub.caption="", caption="")
+abline(a = 0, b = 0, col = "darkgrey", lwd = 2)
+```
+
+We can see there is some potential outliers but the rest seems reasonable to consider constant.
+
+### Cumulative Sampled Probability
+
+```{r}
+plot(bma, which=2, add.smooth = F, sub.caption="", caption="")
+```
+
+We can see here the importance of including all models here, there is a ever growing increase of cumulative probabilities with each model added.
+
+### Model Complexity
+
+```{r}
+plot(bma, which=3, ask=F, caption="", sub.caption="")
+```
+
+It looks like the log of marginal likelihood is constant between the dimensions 4 through 11.
+
+### Marginal Inclusion Probability
+
+```{r}
+plot(bma, which = 4, ask = F, caption = "", sub.caption = "",
+col.in = "blue", col.ex = "darkgrey", lwd = 3)
+```
+
+We can see the most important variables is the `imdb_rating` and `critics_score` as we discussed earlier, followed by runtime.
+
+* * *
+
+## Part 5: Prediction
+
+As we have seen from EDA, the movies are from the 70's through 2014, so we will predict a movie from this range. The movie chosen was Inception (2010). It can be found at [imdb](https://www.imdb.com/title/tt1375666/), [Rotten Tomatoes](https://www.rottentomatoes.com/m/inception) and [Box Office Mojo](https://www.boxofficemojo.com/year/2010/?ref_=bo_yl_table_11).
+
+We have the following information of interest:
+
+```{r}
+inseption <- data.frame(runtime = 80, thtr_rel_year = 2010, imdb_rating = 8.8, imdb_num_votes =  2029707, critics_score = 87,best_pic_nom = 'yes', best_pic_win = 'no', best_actor_win = 'yes',best_actress_win='no',best_dir_win='no',top200_box='yes',feature_film='yes',drama='no',mpaa_rating_R='no',oscar_season = 'no', summer_season='yes')
+```
+
+Now we do the prediction.
+
+```{r}
+bmapred<- predict(bma,inseption, estimator = "BMA", se.fit = TRUE)
+```
+
+```{r}
+credible_interval <- confint(bmapred, parm = 'pred')
+credible_interval
+```
+There is 95% chance that the predicted audience score is on average between `r round(credible_interval[[1]],2)` and `r round(credible_interval[[2]],2)`%. Of course that the top value isn't real but the actual value is 91, which in fact is at the credible interval.
+
+* * *
+
+## Part 6: Conclusion
+
+We have found that audience score is more associated with imdb rating and critics score than the other analyzed variables under a Bayesian framework. Also, data was very underrepresented in some variables such as best_pic_win, which might have affected results introducing bias. Better models could be derived from a more diverse sample of movies.
+
+* * * 
+ 
+## Reference
+- [OpenIntro Statistics, 3rd   Edition](https://www.openintro.org/book/os/)
+
+- [An Introduction to Bayesian Thinking](https://statswithr.github.io/book/index.html)
+
