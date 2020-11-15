@@ -143,11 +143,11 @@ We can see there seems to be a reasonable difference between the two groups in t
 
 ## Part 4: Modeling
 
-For the multiple linear regression modeling we are going to use a Bayesian Model Averaging (BMA) using the `bas.lm` function from the `BAS` package.
+For the multiple linear regression modeling we are going to use a Bayesian Model Averaging (BMA). The BMA works weight averaging multiple models, weighting each model with its calculated posterior probability. This way we can account for the uncertainty about the variables to be included in the model, instead of choosing just one and ignoring this uncertainty about the true model.
 
-The BMA works averaging multiple models to obtain posteriors of coefficients. This way we avoid the problem of having to choose just one model, thus ignoring the uncertainty about the variables to be included in the model. 
+For this, we use the `bas.lm` function from the `BAS` package to calculate the posterior probability of every possible model. With all those variables included, We will have a total of $2^k$ models, where $k=16$, resulting in **`r 2^16`** models. We assign equal prior probabilities to all those models and use Bayesian Information Criterion (BIC) to set the coefficients prior, which is a very conservative prior.
 
-With all those variables included, We will have a total of $2^k$ models, where $k=16$, resulting in `r 2^16` models. We assign equal prior probabilities to all those models and use Bayesian Information Criterion (BIC) to set the coefficients prior, which is a very conservative prior.
+From the summary of the models we can see that all the variables have high Marginal Posterior Inclusion Probabilities, and the model including all the variables is the one with highest posterior probability. The plot shows the distribution of coefficients' posterior probabilities. Given these, we keep our model as is.
 
 ```{r}
 bma <- bas.lm(audience_score ~., data = dataofinterest,
@@ -187,11 +187,15 @@ coef_bma %>% confint() %>% round(3)
 
 So, we can say we have a 95% chance that for each unit of imdb rating increase we have on average between 13.645 and 16.528 increase of audience score.
 
-And for each unit of critics score increase we have on average between 0 and 0.106 increase of audience score with 95% chance, a small effect compared with the previous one. 
+And for each unit of critics score increase we have on average between 0 and 0.106 increase of audience score with 95% chance, a very small effect compared with the previous one. 
 
 Another interest effect is the one of the best actor winner. Movies with actors that have ever won a oscar as best actor have on average 2.574 and 0 audience score decrease compared with movies that don't have such actors, with a 95% chance of course.
 
-We can see too that many variables have 95% chance of having on average 0 influence on audience score, such as number of imdb votes, whether or not the movie won a best picture Oscar, whether or not the movies is drama and whether or not the movie is in the Top 200 Box Office list on BoxOfficeMojo. So we could choose to take then out of the model.
+We can see too that many variables have 95% chance of having on average 0 influence on audience score, such as number of imdb votes, whether or not the movie won a best picture Oscar, whether or not the movies is drama and whether or not the movie is in the Top 200 Box Office list on BoxOfficeMojo, and doesn't even appear in any of the top 10 models below. So we could choose to take then out of the model, but in BMA, as stated before, the model is weighted by their posterior probability, so this is as if it was already taken care of if we keep using BMA further, which we will.
+
+```{r}
+image(bma, top.models = 10, rotate = FALSE)
+```
 
 Now, let's make some model diagnostics. 
 
